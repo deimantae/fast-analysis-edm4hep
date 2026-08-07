@@ -1,0 +1,11 @@
+# Python
+.venv/
+__pycache__/
+
+# Analysis outputs
+*.coffea
+*.root
+*.pdf
+
+# Keep input datasets outside the repository
+data/
