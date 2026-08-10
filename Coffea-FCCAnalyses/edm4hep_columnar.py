@@ -155,7 +155,7 @@ def build_parser():
     convert_parser = subparsers.add_parser(
         "convert",
         help="Read an EDM4hep file, apply the configured analysis steps "
-        "and write the selected variables to an RNTuple"
+        "and write the selected variables to an reduced RNTuple"
     )
     convert_parser.add_argument("--parameters-file", required=True, type=str,
                         help="YAML file containing the analysis configuration.")
@@ -175,8 +175,7 @@ def build_parser():
                         help="YAML file containing the analysis configuration.")
     edm4hep_parser.add_argument("--input-file", required=True, type=str,
                         help="Input EDM4hep ROOT file.")
-    edm4hep_parser.add_argument("--output-file",
-                                default="edm4hep_histograms.coffea", type=str,
+    edm4hep_parser.add_argument("--output-file", required=True, type=str,
                                 help="Output Coffea histogram file.")
     edm4hep_parser.set_defaults(function=histogram_edm4hep)
     
@@ -186,8 +185,7 @@ def build_parser():
         help="Read an RNTuple ROOT file and save Coffea histogram objects.")
     rntuple_parser.add_argument("--input-file", required=True, type=str,
                         help="Input RNTuple ROOT file.")
-    rntuple_parser.add_argument("--output-file",
-                                default="rntuple_histograms.coffea", type=str,
+    rntuple_parser.add_argument("--output-file", required=True, type=str,
                                 help="Output Coffea histogram file.")
     rntuple_parser.set_defaults(function=histogram_rntuple)
     

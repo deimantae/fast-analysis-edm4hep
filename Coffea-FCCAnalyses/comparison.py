@@ -1,7 +1,7 @@
 '''
-Compare two histogram files.
+Compare two histogram files
 
-This script can be run directly or imported by edm4hep_reduce.py
+This script can be run directly or imported by edm4hep_columnar.py
 '''
 
 from argparse import ArgumentParser
@@ -141,7 +141,7 @@ def main():
     
     compare_histograms(args.histograms_1, args.histograms_2, args.output_file)
 
-# Allow this file to be imported by edm4hep_reduce.py
+# Allow this file to be imported by edm4hep_columnar.py
 # without executing the CLI
 if __name__ == "__main__":
     main()
