@@ -1,0 +1,239 @@
+'''
+Run configurable EDM4hep file reduction, conversion to RNTuple, histogramming 
+and validation commands.
+'''
+import sys
+import yaml
+from argparse import ArgumentParser
+
+import ROOT
+
+from analysis_helpers import add_fields, apply_selection, collect_variables
+from comparison import compare_histograms
+
+# Load FCCAnalyses
+# Adapted from FCCAnalyses/examples/data_source/standalone.py
+
+ROOT.gSystem.Load("libFCCAnalyses")
+if ROOT.dummyLoader:
+    print("----> DEBUG: Found FCCAnalyses library.")
+    ROOT.gInterpreter.Declare("using namespace FCCAnalyses::PodioSource;")
+print("----> INFO: Loading analyzers from libFCCAnalyses...")
+
+# Load podio DataSource
+if ROOT.podio.DataSource:
+    print("----> DEBUG: Found Podio ROOT DataSource.")
+
+
+def load_configuration(parameters_file):
+    # Load the analysis configuration from a YAML file
+    # and store its contents as a dictionary
+    with open(parameters_file, "r") as file:
+        contents = yaml.safe_load(file) or {}
+
+    # Optional event selection
+    selection = contents.get("selection")
+
+    # Optional additional fields
+    additional_fields = contents.get("additional_fields") or []
+
+    # Variables to collect
+    variables = contents.get("variables") or {}
+
+    return selection, additional_fields, variables
+
+
+def open_edm4hep(input_file):
+    # Open the EDM4hep ROOT file using podio::DataSource
+    input_list = [input_file]
+
+    print("----> INFO: Loading events through podio::DataSource...")
+
+    try:
+        dframe = ROOT.podio.CreateDataFrame(input_list)
+    except TypeError as excp:
+        print("----> ERROR: Unable to build dataframe!")
+        print(excp)
+        raise
+
+    # TODO: Remove temporary event limit after debugging
+    return dframe.Range(100)
+
+
+def configure_analysis(input_file, parameters_file):
+    # Load and apply optional additional fields and/or event selection
+    selection, additional_fields, variables = (
+        load_configuration(parameters_file)
+    )
+
+    dframe = open_edm4hep(input_file)
+
+    try:
+        # Add user-defined fields to the dataframe
+        dframe, field_definitions = add_fields(
+            dframe,
+            additional_fields,
+        )
+
+        # Apply the event selection
+        dframe = apply_selection(
+            dframe,
+            selection,
+        )
+
+    except (ValueError, TypeError, KeyError) as error:
+        print(f"Configuration error: {error}")
+        sys.exit(1)
+
+    try:
+        # Collect all indicated variables
+        dframe, branches = collect_variables(
+            dframe,
+            variables,
+            field_definitions,
+        )
+
+    except (ValueError, TypeError, KeyError, AttributeError) as error:
+        print(f"Configuration error: {error}")
+        sys.exit(1)
+
+    return dframe, branches
+
+
+def convert(args):
+    # Configure the EDM4hep analysis
+    dframe, branches = configure_analysis(
+        args.input_file,
+        args.parameters_file
+    )
+
+    # Configure Snapshot to write an RNTuple
+    snapshot_options = ROOT.RDF.RSnapshotOptions()
+
+    snapshot_options.fOutputFormat = (
+        ROOT.RDF.ESnapshotOutputFormat.kRNTuple
+    )
+
+    # Write reduced RNTuple
+    dframe.Snapshot(
+        "events",
+        args.output_file,
+        branches,
+        snapshot_options,
+    )
+
+    print(f"Saved reduced RNTuple to {args.output_file}")
+
+
+def histogram_edm4hep(args):
+    # Create histograms directly from the EDM4hep file
+    dframe, branches = configure_analysis(
+        args.input_file,
+        args.parameters_file
+    )
+
+    # Book all histogram actions before triggering the event loop
+    histograms = []
+
+    for branch_name in branches:
+        histogram = dframe.Histo1D(
+            (branch_name, "", 50, 0, 150),
+            branch_name,
+        )
+        histograms.append(histogram)
+
+    # Write histogram objects
+    output_file = ROOT.TFile(args.output_file, "RECREATE")
+    for histogram in histograms:
+        histogram.Write()
+
+    output_file.Close()
+
+    print(f"Saved histogram objects to {args.output_file}")
+
+
+def histogram_rntuple(args):
+    dframe = ROOT.RDataFrame("events", args.input_file)
+    output_file = ROOT.TFile(args.output_file, "RECREATE")
+
+    for variable_name in dframe.GetColumnNames():
+        variable_name = str(variable_name)
+
+        histogram = dframe.Histo1D(
+            (variable_name, "", 50, 0, 150),
+            variable_name,
+        )
+
+        histogram.Write()
+
+    output_file.Close()
+
+    print(f"Saved histogram objects to {args.output_file}")    
+
+
+def compare(args):
+    # Compare two ROOT histogram files
+    compare_histograms(args.histograms_1, args.histograms_2, args.output_file)
+
+
+def build_parser():
+    # Create the command-line parser and subcommands
+    parser = ArgumentParser(description="Run a configurable EDM4hep analysis.")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # Convert command
+    convert_parser = subparsers.add_parser(
+        "convert",
+        help="Read an EDM4hep file, apply the configured analysis steps "
+        "and write the selected variables to a reduced RNTuple"
+    )
+    convert_parser.add_argument("--parameters-file", required=True, type=str,
+                        help="YAML file containing the analysis configuration.")
+    convert_parser.add_argument("--input-file", required=True, type=str,
+                        help="Input EDM4hep ROOT file.")
+    convert_parser.add_argument("--output-file", default="output.root", type=str,
+                        help="Output RNTuple ROOT file.")
+    convert_parser.set_defaults(function=convert)
+
+    # EDM4hep histogram command
+    edm4hep_parser = subparsers.add_parser(
+        "histogram-edm4hep",
+        help="Read an EDM4hep file, apply the configured analysis steps "
+        "and save ROOT histogram objects."
+    )
+    edm4hep_parser.add_argument("--parameters-file", required=True, type=str,
+                        help="YAML file containing the analysis configuration.")
+    edm4hep_parser.add_argument("--input-file", required=True, type=str,
+                        help="Input EDM4hep ROOT file.")
+    edm4hep_parser.add_argument("--output-file", required=True, type=str,
+                                help="Output ROOT histogram file.")
+    edm4hep_parser.set_defaults(function=histogram_edm4hep)
+    
+    # RNTuple histogram command
+    rntuple_parser = subparsers.add_parser(
+        "histogram-rntuple",
+        help="Read an RNTuple ROOT file and save ROOT histogram objects.")
+    rntuple_parser.add_argument("--input-file", required=True, type=str,
+                        help="Input RNTuple ROOT file.")
+    rntuple_parser.add_argument("--output-file", required=True, type=str,
+                                help="Output ROOT histogram file.")
+    rntuple_parser.set_defaults(function=histogram_rntuple)
+    
+    # Comparison command
+    compare_parser = subparsers.add_parser(
+        "compare",
+        help="Compare two ROOT histogram files",
+    )
+    compare_parser.add_argument("histograms_1", help="First histogram file.")
+    compare_parser.add_argument("histograms_2", help="Second histogram file.")
+    compare_parser.add_argument("--output-file",
+                                default="histogram_comparison.pdf",
+                                help="Output PDF file.")
+    compare_parser.set_defaults(function=compare)
+
+    return parser
+
+
+parser = build_parser()
+args = parser.parse_args()
+args.function(args)
