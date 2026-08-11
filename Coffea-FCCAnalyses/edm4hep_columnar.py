@@ -80,16 +80,33 @@ def configure_analysis(input_file, parameters_file):
 def create_histograms(variables):
     # Create Coffea histogram objects from the filtered dictionary of arrays
     histograms = {}
-    for variable_name, values in variables.items():
-        histograms[variable_name] = (
-            hist.Hist.new
-            .Reg(50, 0, 150)
-            .Double()
-            .fill(ak.ravel(values))
-        )
-        
-    return histograms
 
+    for variable_name, values in variables.items():
+        values = ak.ravel(values)
+
+        # Skip empty variables
+        if len(values) == 0:
+            continue
+        
+        minimum = float(ak.min(values))
+        maximum = float(ak.max(values))
+
+        # Avoid a zero width range
+        if minimum == maximum:
+            margin = 0.5 if minimum == 0 else 0.1 * abs(minimum)
+            minimum -= margin
+            maximum += margin
+
+        histogram = (
+            hist.Hist.new
+            .Reg(100, minimum, maximum)
+            .Double()
+            .fill(values)
+        )
+
+        histograms[variable_name] = histogram
+
+    return histograms
 
 def histogram_edm4hep(args):
     # Create histograms directly from the original EDM4hep file
@@ -102,6 +119,8 @@ def histogram_edm4hep(args):
     
     util.save(histograms, args.output_file)
     print(f"Saved histogram objects to {args.output_file}")
+    #look at coffea util
+    # best if root files
     
     
 def convert(args):
@@ -122,20 +141,14 @@ def convert(args):
 def histogram_rntuple(args):
     # Open the reduced RNTuple
     with uproot.open(args.input_file) as input_file:
-        variables = input_file["Events"].arrays()
+        arrays = input_file["Events"].arrays()
         
-    # Create histogram objects
-    histograms = {}
+    variables = {}
 
-    for variable_name in variables.fields:
-        histogram = (
-            hist.Hist.new
-            .Reg(50, 0, 150)
-            .Double()
-            .fill(ak.ravel(variables[variable_name]))
-        )
+    for variable_name in arrays.fields:
+        variables[variable_name] = arrays[variable_name]
 
-        histograms[variable_name] = histogram
+    histograms = create_histograms(variables)
 
     util.save(histograms, args.output_file)
     print(f"Saved histogram objects to {args.output_file}")
