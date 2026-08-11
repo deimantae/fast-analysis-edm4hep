@@ -1,0 +1,10 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Temporary files
+._*
+
+# Analysis outputs
+*.root
+histogram_comparison.pdf
